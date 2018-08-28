@@ -1,14 +1,21 @@
 (ns elevator-clj.core
   (:require clojure.data.priority-map clojure.set))
 
+;; TODO: spec!
+
+;; [floor, direction] => time
 (def calls (atom (clojure.data.priority-map/priority-map)))
 
+;; car ID => car
 (def cars (atom {}))
 
+;; #{integer}
 (def floors #{})
 
+;; [floor, direction] => car
 (def commitments (atom {}))
 
+;; [[floor direction car]]
 (def movements (atom []))
 
 (defn abs
@@ -41,11 +48,12 @@
 (defn move 
   "Move a car in a direction."
   [car direction]
-  (let [floor (+ (get (last movements) :floor) 1)]
+  (let [[last-floor _ _] (last movements)
+        floor (+ last-floor 1)]
     (if (contains? floors floor)
-      (if (contains? (uncommitted-calls) floor)
-        (hash-set commitments floor car))
-        (conj movements '(floor direction (java.time.LocalDateTime/now))))))
+      (if (contains? (uncommitted-calls) [floor direction])
+        (hash-set commitments [floor direction] car))
+        (conj movements [floor direction (java.time.LocalDateTime/now)]))))
 
 (defn stop
   "Stop a car at a floor."
@@ -59,7 +67,7 @@
   "Respond to car movements."
   [key movements old-movements new-movements]
   (let [[floor direction car] (last new-movements)]
-    (if (= (get commitments floor) car)
+    (if (= (get commitments [floor direction]) car)
       (stop car floor))))
 
 (defn distance-to-floor
@@ -83,7 +91,6 @@
       [(distance-to-floor commitment-floor floor) car-idx])
     (seq @commitments)))
 
-;; TODO: Any way to simplify? Do we need a map at all?
 (defn closest-car
   "The closest car to a floor."
   [candidates floor]
@@ -119,26 +126,25 @@
   [car floor]
   (hash-set commitments floor car))
 
+(defn call-car
+  "Call a car."
+  [floor direction]
+  (hash-set calls [floor direction] (java.time.LocalDateTime/now)))
+
 (defn call-processor
   "Turn calls into commitments."
   [key watched old-state new-state]
-  (let [floor (get new-state :floor)
-        direction (get new-state :direction)
+  (let [latest (last new-state)
+        floor (get latest :floor)
+        direction (get latest :direction)
         idlers (idle-cars)
         num-idlers (count idlers)
-        busy-cars-en-path (busy-cars-in-path floor direction)
-        num-busy-cars-in-path (count busy-cars-in-path)]
-    (if-not (contains? commitments floor)
+        busy-cars (busy-cars-in-path floor direction)
+        num-busy-cars-in-path (count busy-cars)]
+    (if-not (contains? commitments [floor direction])
       (cond
-        (= num-idlers 1) (commit-car (first idlers) floor)
-        (> num-idlers 1) (commit-car (closest-car idlers floor) floor)
-        ;; TODO: This means that a car going down, past a call, will ignore it
-        ;; and continue down to drop people off, and then come back. What we want
-        ;; is for that to be a backup case, but for any car currently going down
-        ;; past that floor to take the commitment first. So we want to look for
-        ;; busy cars heading in the same direction in whose path the call lies.
-        ;;
-        ;; Something like:
+        (= num-idlers 1) (commit-car (first idlers) [direction floor])
+        (> num-idlers 1) (commit-car (closest-car idlers floor) [direction floor])
         (and (= num-idlers 0) (> num-busy-cars-in-path 1)) (commit-car (first busy-cars-in-path) floor)
         (and (= num-idlers 0) (= num-busy-cars-in-path 0)) (commit-car (closest-commitment floor) floor)))))
 
