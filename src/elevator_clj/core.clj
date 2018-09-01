@@ -110,21 +110,23 @@
   [floor direction]
   (filter some?
     (map
-      (fn [idx car]
+      (fn [[car-id car]]
         (let [current-floor (:floor car)
               commitment-floor (get (clojure.set/map-invert @commitments) car)
-              car-direction (:direction car)]
+              car-direction (:direction car)
+              status (:status car)]
           (if
-            (and (= direction car-direction)
-                 (if (= direction :down)
-                   (and (>= floor commitment-floor) (<= floor current-floor))
-                   (and (<= floor commitment-floor) (>= floor current-floor))))
-            idx))))))
+            (and (= status :busy) (= direction car-direction))
+              (if (= direction :down)
+                (and (>= floor commitment-floor) (<= floor current-floor))
+                (and (<= floor commitment-floor) (>= floor current-floor)))
+            car-id)))
+      @cars)))
 
 (defn commit-car
   "Commit a car to a call."
-  [car floor]
-  (hash-set commitments floor car))
+  [car direction floor]
+  (swap! commitments assoc [direction floor] car))
 
 (defn call-car
   "Call a car."
@@ -134,19 +136,17 @@
 (defn call-processor
   "Turn calls into commitments."
   [key watched old-state new-state]
-  (let [latest (last new-state)
-        floor (get latest :floor)
-        direction (get latest :direction)
+  (let [[[floor direction] _] (last new-state)
         idlers (idle-cars)
         num-idlers (count idlers)
         busy-cars (busy-cars-in-path floor direction)
         num-busy-cars-in-path (count busy-cars)]
-    (if-not (contains? commitments [floor direction])
-      (cond
-        (= num-idlers 1) (commit-car (first idlers) [direction floor])
-        (> num-idlers 1) (commit-car (closest-car idlers floor) [direction floor])
-        (and (= num-idlers 0) (> num-busy-cars-in-path 1)) (commit-car (first busy-cars-in-path) floor)
-        (and (= num-idlers 0) (= num-busy-cars-in-path 0)) (commit-car (closest-commitment floor) floor)))))
+    (if-not (contains? @commitments [floor direction])
+        (cond
+          (= num-idlers 1) (commit-car (first idlers) direction floor)
+          (> num-idlers 1) (commit-car (closest-car idlers floor) direction floor)
+          (and (= num-idlers 0) (> num-busy-cars-in-path 1)) (commit-car (first busy-cars-in-path) direction floor)
+          (and (= num-idlers 0) (= num-busy-cars-in-path 0)) (commit-car (closest-commitment floor) direction floor)))))
 
 (add-watch calls :call-processor call-processor)
 

@@ -7,9 +7,9 @@
     (do
       (reset! cars {1 {:floor 1 :status :idle}
                     2 {:floor 3 :status :idle}})
-      (hash-set calls [4 :down] (java.time.LocalDateTime/now)))
+      (swap! calls assoc [4 :down] (java.time.LocalDateTime/now)))
     (let [commits @commitments]
-      (is (= (get @commitments [4 :down]) (get @cars 2)))))
+      (is (= (get @commitments [:down 4]) 2))))
 
 (deftest test-closest-car
   (testing "closest-car finds the closest idle car"
